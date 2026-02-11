@@ -1,178 +1,98 @@
 import streamlit as st
 import pickle
 import string
+import nltk
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
-import nltk
 
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
-
-try:
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    nltk.download('stopwords')
+# ---------------- NLTK DOWNLOAD (FOR STREAMLIT CLOUD) ----------------
+nltk.download('punkt')
+nltk.download('punkt_tab')
+nltk.download('stopwords')
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
     page_title="AI Spam Detector",
-    page_icon="🛡️",
+    page_icon="📧",
     layout="centered"
 )
 
-# ---------------- GLASSMORPHISM CSS ----------------
-st.markdown("""
-<style>/home/kalyan-chakraborty/Downloads/pycharm-2025.3.2.1
+# ---------------- LOAD MODEL ----------------
+tfidf = pickle.load(open('vectorizer.pkl', 'rb'))
+model = pickle.load(open('model.pkl', 'rb'))
 
-body {
-    background: linear-gradient(135deg,#0f172a,#1e293b);
-    color:white;
-}
-
-.big-title {
-    text-align:center;
-    font-size:42px;
-    font-weight:800;
-    background: linear-gradient(90deg,#38bdf8,#6366f1);
-    -webkit-background-clip:text;
-    -webkit-text-fill-color:transparent;
-}
-
-.subtitle {
-    text-align:center;
-    color:#cbd5f5;
-    margin-bottom:25px;
-}
-
-.card {
-    padding:25px;
-    border-radius:15px;
-    background: rgba(255,255,255,0.05);
-    backdrop-filter: blur(12px);
-    border:1px solid rgba(255,255,255,0.1);
-}
-
-.result-spam {
-    padding:20px;
-    border-radius:12px;
-    background:#7f1d1d;
-    text-align:center;
-    font-size:22px;
-    font-weight:700;
-}
-
-.result-safe {
-    padding:20px;
-    border-radius:12px;
-    background:#064e3b;
-    text-align:center;
-    font-size:22px;
-    font-weight:700;
-}
-
-.stButton>button {
-    background: linear-gradient(90deg,#6366f1,#22d3ee);
-    color:white;
-    border:none;
-    border-radius:10px;
-    font-size:18px;
-    font-weight:600;
-    padding:12px;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-# ---------------- MODEL ----------------
 ps = PorterStemmer()
+stop_words = set(stopwords.words('english'))
 
+# ---------------- TEXT PREPROCESS FUNCTION ----------------
 def transform_text(text):
     text = text.lower()
-    text = nltk.word_tokenize(text)
+    words = nltk.word_tokenize(text)
 
-    stop_words = set(stopwords.words('english'))
-
-    words = [
-        ps.stem(w)
-        for w in text
-        if w.isalnum() and w not in stop_words
-    ]
+    words = [w for w in words if w.isalnum()]
+    words = [w for w in words if w not in stop_words]
+    words = [ps.stem(w) for w in words]
 
     return " ".join(words)
 
-tfidf = pickle.load(open('vectorizer.pkl','rb'))
-model = pickle.load(open('model.pkl','rb'))
+# ---------------- UI ----------------
+st.title("📧 AI Spam Classifier")
+st.caption("Detect Spam Emails & SMS using Machine Learning")
 
-# ---------------- HEADER ----------------
-st.markdown("<div class='big-title'>🛡️ AI Spam Detector</div>", unsafe_allow_html=True)
-st.markdown("<div class='subtitle'>Smart Email & SMS Protection using Machine Learning</div>", unsafe_allow_html=True)
+st.markdown("---")
 
-# ---------------- INPUT CARD ----------------
-
+# Text input
 input_sms = st.text_area(
-    "✍️ Enter your message",
-    height=140,
-    placeholder="Type or paste your message here..."
+    "✍️ Enter your message:",
+    height=150,
+    placeholder="Type your message here..."
 )
 
-uploaded_file = st.file_uploader("📄 Or upload a text file", type=["txt"])
+# File upload option
+uploaded_file = st.file_uploader("📄 Or upload a .txt file", type=["txt"])
 
-st.markdown("</div>", unsafe_allow_html=True)
+# ---------------- PREDICTION ----------------
+if st.button("🔍 Predict"):
 
-# ---------------- BUTTON ----------------
-if st.button("🔍 Analyze Message", use_container_width=True):
-
-    if uploaded_file:
+    # If file uploaded, read it
+    if uploaded_file is not None:
         input_sms = uploaded_file.read().decode()
 
     if input_sms.strip() == "":
-        st.warning("Please enter a message.")
+        st.warning("⚠️ Please enter a message")
     else:
-        with st.spinner("Analyzing with AI..."):
+        with st.spinner("Analyzing..."):
             transformed = transform_text(input_sms)
-            vector = tfidf.transform([transformed])
+            vector_input = tfidf.transform([transformed])
 
-            prediction = model.predict(vector)[0]
-            prob = model.predict_proba(vector)[0]
+            prediction = model.predict(vector_input)[0]
+            prob = model.predict_proba(vector_input)[0]
+
+        confidence = max(prob) * 100
 
         st.markdown("---")
 
-        confidence = max(prob)*100
-
         if prediction == 1:
-            st.markdown(
-                f"<div class='result-spam'>🚨 SPAM DETECTED<br>Confidence: {confidence:.2f}%</div>",
-                unsafe_allow_html=True
-            )
-            st.error("Avoid links or sharing personal info.")
+            st.error(f"🚨 SPAM DETECTED ({confidence:.2f}% confidence)")
         else:
-            st.markdown(
-                f"<div class='result-safe'>✅ SAFE MESSAGE<br>Confidence: {confidence:.2f}%</div>",
-                unsafe_allow_html=True
-            )
-            st.success("This looks safe.")
+            st.success(f"✅ NOT SPAM ({confidence:.2f}% confidence)")
 
 # ---------------- SIDEBAR ----------------
-st.sidebar.title("⚙️ Dashboard")
-
-st.sidebar.markdown("### 📌 About")
+st.sidebar.title("ℹ️ About")
 st.sidebar.info(
-    "AI-powered spam detection using NLP and Machine Learning."
+    "This app uses NLP and a Machine Learning model "
+    "to classify messages as Spam or Not Spam."
 )
 
-st.sidebar.markdown("### 🧠 Model Info")
-st.sidebar.write("• TF-IDF Vectorizer")
-st.sidebar.write("• Naive Bayes Classifier")
-st.sidebar.write("• NLP Preprocessing")
+st.sidebar.markdown("### 🧠 Tech Stack")
+st.sidebar.write("- Python")
+st.sidebar.write("- Streamlit")
+st.sidebar.write("- NLTK")
+st.sidebar.write("- Scikit-learn")
 
-st.sidebar.markdown("### 🚀 Developer")
-st.sidebar.write("Built by Kalyan Chakraborty")
+st.sidebar.markdown("### 👨‍💻 Developer")
+st.sidebar.write("Kalyan Chakraborty")
 
 # ---------------- FOOTER ----------------
 st.markdown("---")
-st.markdown(
-    "<p style='text-align:center;color:gray;'>© 2026 AI Spam Detector</p>",
-    unsafe_allow_html=True
-)
+st.caption("© 2026 Spam Classifier | Built with ML & NLP")
